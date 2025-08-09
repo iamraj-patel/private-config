@@ -1,0 +1,191 @@
+Q. My name is Raj Patel. I am using Debian 13 server. Please make me cool and dynamic custom /etc/motd message.
+
+# Custom Dynamic MOTD for Debian 13
+
+This guide shows you how to replace the static `/etc/motd` with a dynamic, eye-catching message that updates on each login. We’ll leverage Debian’s `pam_motd` and the `/etc/update-motd.d` directory to break the MOTD into reusable, version-controlled scripts—so each piece can be tweaked independently.
+
+---
+
+## 1. Prerequisites
+
+- A Debian 13 server with root or sudo access  
+- `bash`, `awk`, `sed`, and coreutils installed (default on Debian)  
+- Optional: `jq` (for JSON), `kubectl` (if you want cluster info)  
+
+---
+
+## 2. Disable the Static `/etc/motd`
+
+1. Move away the old MOTD so PAM won’t print it:
+   ```bash
+   sudo mv /etc/motd /etc/motd.static
+   ```
+2. Ensure `/etc/pam.d/sshd` (and other services) include:
+   ```text
+   session    optional   pam_motd.so  motd=/run/motd.dynamic
+   ```
+   Debian’s defaults already point at `/run/motd.dynamic`.
+
+---
+
+## 3. Create the `/etc/update-motd.d/` Directory
+
+If it doesn’t exist, create it and clear out old scripts:
+```bash
+sudo mkdir -p /etc/update-motd.d
+sudo chmod 755 /etc/update-motd.d
+sudo rm -f /etc/update-motd.d/*
+```
+
+Every executable script in this folder runs in numeric order; its stdout is concatenated into `/run/motd.dynamic`.
+
+---
+
+## 4. Script: 00-header
+
+Print a banner with hostname, date, and a touch of color.
+```bash
+sudo tee /etc/update-motd.d/00-header > /dev/null <<'EOF'
+#!/usr/bin/env bash
+# ASCII banner + hostname + date
+
+ESC=$(printf "\033")
+RESET="${ESC}[0m"
+BOLD="${ESC}[1m"
+CYAN="${ESC}[36m"
+
+cat <<EOB
+
+${CYAN}${BOLD}
+   ____             _     ____  _   _ 
+  |  _ \  ___   ___| | __/ ___|| |_| |
+  | | | |/ _ \ / __| |/ /\___ \| __| |
+  | |_| | (_) | (__|   <  ___) | |_|_|
+  |____/ \___/ \___|_|\_\|____/ \__(_)
+${RESET}
+
+ System: ${BOLD}$(hostname -f)${RESET}    Date: ${BOLD}$(date +"%Y-%m-%d %H:%M:%S")${RESET}
+
+EOB
+EOF
+sudo chmod +x /etc/update-motd.d/00-header
+```
+
+---
+
+## 5. Script: 10-system-info
+
+Gather uptime, load, memory, disk, kernel, and IP.
+```bash
+sudo tee /etc/update-motd.d/10-system-info > /dev/null <<'EOF'
+#!/usr/bin/env bash
+
+# Uptime & Load
+UP=$(awk '{print int($1/86400)"d "int($1%86400/3600)"h "int($1%3600/60)"m"}' /proc/uptime)
+LOAD=$(cut -d ' ' -f1-3 /proc/loadavg)
+
+# Memory
+read -r total used free <<<$(free -m | awk '/^Mem:/ {print $2, $3, $4}')
+
+# Disk
+DF=$(df -h / | awk 'NR==2 {print $5 " used (" $3 "/" $2 ")"}')
+
+# Kernel & CPU
+KERNEL=$(uname -r)
+CPUMODEL=$(awk -F: '/model name/ {print $2; exit}' /proc/cpuinfo)
+
+# Primary IP
+IP=$(hostname -I | awk '{print $1}')
+
+cat <<EOM
+ Uptime:      ${UP}    Load: ${LOAD}
+ Memory:      ${used}MiB / ${total}MiB (${free}MiB free)
+ Disk (/):    ${DF}
+ Kernel:      ${KERNEL}
+ CPU:         ${CPUMODEL}
+ IP Address:  ${IP}
+
+EOM
+EOF
+sudo chmod +x /etc/update-motd.d/10-system-info
+```
+
+---
+
+## 6. (Optional) Script: 20-cluster-info
+
+If `kubectl` is present, show node status at a glance.
+```bash
+sudo tee /etc/update-motd.d/20-cluster-info > /dev/null <<'EOF'
+#!/usr/bin/env bash
+
+if command -v kubectl >/dev/null 2>&1; then
+  READY=$(kubectl get nodes --no-headers 2>/dev/null \
+    | awk '{s+=$2=="Ready"} END {print s "/" NR}')
+  echo " Kubernetes Nodes Ready: ${READY}"
+  echo
+fi
+EOF
+sudo chmod +x /etc/update-motd.d/20-cluster-info
+```
+
+---
+
+## 7. Script: 90-footer
+
+A friendly quote, rotating each day.
+```bash
+sudo tee /etc/update-motd.d/90-footer > /dev/null <<'EOF'
+#!/usr/bin/env bash
+
+QUOTES=(
+  "Innovation distinguishes between a leader and a follower. – Steve Jobs"
+  "Simplicity is the soul of efficiency. – Austin Freeman"
+  "The best way to predict the future is to invent it. – Alan Kay"
+  "First, solve the problem. Then, write the code. – John Johnson"
+  "Any sufficiently advanced technology is indistinguishable from magic. – Clarke"
+)
+# Select quote by day-of-year
+IDX=$(( $(date +%j) % ${#QUOTES[@]} ))
+echo " “${QUOTES[$IDX]}”"
+EOF
+sudo chmod +x /etc/update-motd.d/90-footer
+```
+
+---
+
+## 8. Test It Out
+
+Simply log out and back in via SSH or console. You should see:
+
+```text
+   ____             _     ____  _   _ 
+  |  _ \  ___   ___| | __/ ___|| |_| |
+  | | | |/ _ \ / __| |/ /\___ \| __| |
+  | |_| | (_) | (__|   <  ___) | |_|_|
+  |____/ \___/ \___|_|\_\|____/ \__(_)
+
+ System: debian13.example.com    Date: 2025-08-09 15:00:23
+
+ Uptime:      2d 4h 12m    Load: 0.12 0.07 0.05
+ Memory:      512MiB / 2048MiB (1536MiB free)
+ Disk (/):    30% used (15G/50G)
+ Kernel:      6.5.0-1-amd64
+ CPU:         Intel(R) Xeon(R) CPU E5-2670 v3 @ 2.30GHz
+ IP Address:  192.168.1.10
+
+ Kubernetes Nodes Ready: 3/3
+
+ “The best way to predict the future is to invent it. – Alan Kay”
+```
+
+---
+
+## 9. Next-Level Ideas
+
+- Integrate Docker or KVM/Libvirt VM counts.  
+- Pull real-time SSL expiry from `/etc/letsencrypt/live`.  
+- Add network throughput (e.g., via `vnstat`).  
+- Include upcoming cron jobs or pending security updates.  
+
+Feel free to tweak colors, metrics, or quotes to match your style. Enjoy your fresh, dynamic MOTD!
