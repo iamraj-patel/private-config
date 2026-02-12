@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# --- 1. VIBRANT COLOR ENGINE ---
+get_random_vibrant_color() {
+    local bright_colors=(39 40 45 46 47 48 49 50 51 75 76 81 82 83 84 85 112 113 118 119 120 121 122 123 148 149 154 155 156 157 158 159 190 191 192 193 200 201 208 214 220 221 226)
+    echo "${bright_colors[$RANDOM % ${#bright_colors[@]}]}"
+}
+
+C1="\[\033[38;5;$(get_random_vibrant_color)m\]" # User@Host
+C2="\[\033[38;5;$(get_random_vibrant_color)m\]" # Time
+C3="\[\033[38;5;$(get_random_vibrant_color)m\]" # Jobs
+C4="\[\033[38;5;$(get_random_vibrant_color)m\]" # Path
+C5="\[\033[38;5;$(get_random_vibrant_color)m\]" # Git Branch
+C6="\[\033[38;5;$(get_random_vibrant_color)m\]" # Structure Lines
+SACRED="\[\033[1;38;5;208m\]"                    # Bold Saffron Orange
+RESET="\[\033[0m\]"
+
+# --- 2. UI ELEMENTS ---
+OM_SYM="ॐ"
+TRISHUL_SYM="🔱"
+TOP_CORNER="┌─"
+BOTTOM_CORNER="└─"
+
+# --- 3. GIT INTEGRATION ---
+parse_git_branch() {
+     git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+}
+
+# --- 4. SPACING ---
+export PROMPT_COMMAND="echo"
+
+# --- 5. THE PS1 GENERATOR ---
+# Removed the middle vertical line. 
+# Added spacing after Om so it doesn't touch the bracket.
+tty -s && export PS1="$C6$TOP_CORNER$RESET$SACRED $OM_SYM $RESET$C6─$RESET[$C1\u@\h$RESET] [$C2\t$RESET] [$C3\j$RESET] $C4\w$C5\$(parse_git_branch)\n$C6$BOTTOM_CORNER$SACRED$TRISHUL_SYM $RESET"
+
