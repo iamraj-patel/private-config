@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# --- 1. VIBRANT COLOR ENGINE ---
+get_random_vibrant_color() {
+    local bright_colors=(39 40 45 46 47 48 49 50 51 75 76 81 82 83 84 85 112 113 118 119 120 121 122 123 148 149 154 155 156 157 158 159 190 191 192 193 200 201 208 214 220 221 226)
+    echo "${bright_colors[$RANDOM % ${#bright_colors[@]}]}"
+}
+
+# --- 2. DYNAMIC LOGIC ---
+# Function to get exit status color (Red on error, Vibrant on success)
+get_exit_status() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo "\[\033[38;5;196m\]✘ $exit_code " # Red X and code if failed
+    fi
+}
+
+# Improved Git function: Shows branch + dirty state (*)
+parse_git_status() {
+    local branch=$(git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/\1/')
+    if [ -n "$branch" ]; then
+        local status=$(git status --porcelain 2> /dev/null)
+        local dirty=""
+        [ -n "$status" ] && dirty="*"
+        echo " ($branch$dirty)"
+    fi
+}
+
+# --- 3. THE PS1 GENERATOR ---
+build_prompt() {
+    local EXIT_COLOR=$(get_exit_status)
+    local C1="\[\033[38;5;$(get_random_vibrant_color)m\]" # User@Host
+    local C2="\[\033[38;5;$(get_random_vibrant_color)m\]" # Time
+    local C3="\[\033[38;5;$(get_random_vibrant_color)m\]" # Jobs
+    local C4="\[\033[38;5;$(get_random_vibrant_color)m\]" # Path
+    local C5="\[\033[38;5;$(get_random_vibrant_color)m\]" # Git
+    local C6="\[\033[38;5;$(get_random_vibrant_color)m\]" # Lines
+    local SACRED="\[\033[1;38;5;208m\]"
+    local RESET="\[\033[0m\]"
+    
+    local OM_SYM="ॐ"
+    local TRISHUL_SYM="🔱"
+    
+    # Components
+    local LINE1="$C6┌─$RESET$SACRED $OM_SYM $RESET$C6─$RESET[$C1\u@\h$RESET] [$C2\t$RESET] [$C3\j$RESET] $C4\w$C5\$(parse_git_status)"
+    local LINE2="\n$C6└─$EXIT_COLOR$SACRED$TRISHUL_SYM $RESET"
+
+    PS1="$LINE1$LINE2"
+}
+
+# Update colors and prompt every time a command is run
+PROMPT_COMMAND=build_prompt
+
+# Ensure directory paths don't get too long (shows last 3 components)
+PROMPT_DIRTRIM=3
