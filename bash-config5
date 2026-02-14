@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# --- 1. VIBRANT COLOR ENGINE ---
+# Picks a random, high-visibility color from the 256-color palette
+get_random_vibrant_color() {
+    local bright_colors=(39 40 45 46 47 48 49 50 51 75 76 81 82 83 84 85 112 113 118 119 120 121 122 123 148 149 154 155 156 157 158 159 190 191 192 193 200 201 208 214 220 221 226)
+    echo "${bright_colors[$RANDOM % ${#bright_colors[@]}]}"
+}
+
+# --- 2. UTILITY FUNCTIONS ---
+
+# Git Status: Shows branch and '*' if there are uncommitted changes
+parse_git_status() {
+    local branch=$(git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/\1/')
+    if [ -n "$branch" ]; then
+        local status=$(git status --porcelain 2> /dev/null)
+        local dirty=""
+        [ -n "$status" ] && dirty="*"
+        echo " ($branch$dirty)"
+    fi
+}
+
+# System Load: Reads the 1-minute load average. Turns Bold Red if >= 1.0
+get_load() {
+    read -r load _ < /proc/loadavg
+    local color="\[\033[38;5;$(get_random_vibrant_color)m\]"
+    # Basic bash-only decimal comparison for Load >= 1.0
+    if (( $(echo "$load >= 1.0" | bc -l 2>/dev/null || [ "${load/./}" -ge 100 ] && echo 1 || echo 0) )); then
+        color="\[\033[1;31m\]"
+    fi
+    echo "${color}L: $load"
+}
+
+# Python Venv: Shows the name of the active virtual environment
+get_venv() {
+    if [ -n "$VIRTUAL_ENV" ]; then
+        echo " [py:$(basename "$VIRTUAL_ENV")]"
+    fi
+}
+
+# --- 3. THE PROMPT BUILDER ---
+build_prompt() {
+    local LAST_ERR=$?
+    
+    # Calculate execution time only for the last command run
+    local ELAPSED=""
+    if [ -n "$START_TIME" ]; then
+        local delta=$((SECONDS - START_TIME))
+        [ $delta -gt 0 ] && ELAPSED="(${delta}s) "
+        unset START_TIME
+    fi
+
+    local LOAD_STR=$(get_load)
+    local VENV_STR=$(get_venv)
+    
+    # Refreshing Colors for the UI
+    local C_FRAME="\[\033[38;5;$(get_random_vibrant_color)m\]" # The ┌─ and └─
+    local C_USER="\[\033[38;5;$(get_random_vibrant_color)m\]" 
+    local C_TIME="\[\033[38;5;$(get_random_vibrant_color)m\]" 
+    local C_JOBS="\[\033[38;5;$(get_random_vibrant_color)m\]" 
+    local C_PATH="\[\033[38;5;$(get_random_vibrant_color)m\]" 
+    local C_GIT="\[\033[38;5;$(get_random_vibrant_color)m\]" 
+    local C_RESET="\[\033[0m\]"
+    
+    local SACRED="\[\033[1;38;5;208m\]" # Saffron/Orange for ॐ and 🔱
+    local ERROR="\[\033[38;5;196m\]"   # Red for errors
+    
+    # Permission Shield: Show a red lock if current directory is read-only
+    local LOCK=""
+    [ ! -w "." ] && LOCK="$ERROR🔒 "
+
+    # Root Awareness: Trishul turns red if you are root user
+    [ "$EUID" -eq 0 ] && SACRED=$ERROR
+    
+    # Error Handling: Only shows the '✘ Code' if the last command actually failed
+    local STATUS_STR=""
+    [ $LAST_ERR -ne 0 ] && STATUS_STR="$ERROR✘ $LAST_ERR "
+
+    # THE SECRET SAUCE: Injects 'true' into the prompt string to reset exit status
+    local KARMA_RESET="\[\$(true)\]"
+
+    # Line 1: [User@Host] [Time] [Jobs] [Venv] [Load] Path (Git) (Timer)
+    local LINE1="\n$C_FRAME┌─$C_RESET$SACRED ॐ $C_RESET$C_FRAME─$C_RESET[$C_USER\u@\h$C_RESET] [$C_TIME\t$C_RESET] [$C_JOBS\j$C_RESET]$VENV_STR [$LOAD_STR$C_RESET] $C_PATH\w$C_GIT\$(parse_git_status) $C_TIME$ELAPSED"
+    # Line 2: The Error Code (if any) + Read-only Lock (if any) + Trishul
+    local LINE2="\n$C_FRAME└─$C_RESET$STATUS_STR$LOCK$SACRED🔱 $C_RESET$KARMA_RESET"
+
+    PS1="$LINE1$LINE2"
+}
+
+# --- 4. THE ENGINE ---
+
+# Clear any active traps
+trap - DEBUG
+
+# PS0 sets the timestamp mark immediately after you hit Enter
+export PS0='$(START_TIME=$SECONDS)'
+
+# PROMPT_COMMAND runs the builder before every new prompt
+PROMPT_COMMAND="build_prompt"
+
+# Keeps paths manageable (shows only the last 3 directories)
+export PROMPT_DIRTRIM=3
