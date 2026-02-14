@@ -7,13 +7,19 @@ get_vibrant() {
 }
 
 # --- 2. TELEMETRY MODULES ---
+
+# Git Status: Fixed color escaping for PS1
 parse_git_status() {
     local status
     status=$(git status --porcelain -b 2> /dev/null) || return
     local branch=$(echo "$status" | grep '##' | awk '{print $2}' | sed 's/\.\.\..*//')
     local dirty=""
     [[ $(echo "$status" | wc -l) -gt 1 ]] && dirty="*"
-    echo " \[\033[38;5;214m\] $branch$dirty"
+    
+    # Use \e instead of raw escapes for reliability inside functions
+    local ORANGE='\033[38;5;214m'
+    local RESET='\033[0m'
+    echo -e " ${ORANGE} ${branch}${dirty}${RESET}"
 }
 
 get_sys_health() {
@@ -33,7 +39,7 @@ build_prompt() {
     local ACTUAL_EXIT=$?
     read -r current_load _ < /proc/loadavg
     
-    # UI Colors - FORCED UNIQUENESS
+    # UI Colors - FORCED UNIQUE CALLS
     local C_FRAME="\[\033[38;5;237m\]" 
     local C_SEP="\[\033[38;5;239m\]"   
     local C_USER="\[\033[38;5;$(get_vibrant)m\]"
@@ -52,7 +58,7 @@ build_prompt() {
         unset START_TIME
     fi
 
-    # Smart Status Reset
+    # Smart Status Reset Logic
     local CURRENT_CMD_ID=$(history 1 | awk '{print $1}')
     local STAT_ICON="${SUCCESS}✔"
     local B_COLOR="$C_FRAME"
@@ -74,9 +80,10 @@ build_prompt() {
     [ ! -w "." ] && LOCK=" ${ERROR}🔒"
 
     # --- ASSEMBLY ---
-    # Using the individual color variables (C_USER, C_TIME, C_PATH) 
-    # ensures they stay distinct!
-    local LINE1="\n${C_FRAME}┌──$C_RESET $SACREDॐ$C_RESET ${C_FRAME}──$C_RESET [${C_USER}\u@\h${C_RESET}] ${C_SEP}·$C_RESET ${C_TIME}⌚ \t${C_RESET} ${C_SEP}·$C_RESET $(get_sys_health "$current_load") ${C_SEP}·$C_RESET ${C_PATH}\w${C_RESET}\$(parse_git_status)$ELAPSED"
+    # Moved Git to a non-escaped variable to prevent the "code leak" you saw
+    local GIT_INFO=$(parse_git_status)
+
+    local LINE1="\n${C_FRAME}┌──$C_RESET $SACREDॐ$C_RESET ${C_FRAME}──$C_RESET [${C_USER}\u@\h${C_RESET}] ${C_SEP}·$C_RESET ${C_TIME}⌚ \t${C_RESET} ${C_SEP}·$C_RESET $(get_sys_health "$current_load") ${C_SEP}·$C_RESET ${C_PATH}\w${C_RESET}${GIT_INFO}${ELAPSED}"
     local LINE2="\n${B_COLOR}└─$C_RESET $STAT_ICON$LOCK $SACRED🔱$C_RESET \$ "
 
     PS1="$LINE1$LINE2"
