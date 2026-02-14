@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# --- 1. COLOR ENGINE (Themed) ---
+get_vibrant() {
+    # High-visibility palette: Cyans, Lime, Gold, Magenta
+    local colors=(39 45 51 81 118 123 154 190 201 208 214 220 226)
+    echo "${colors[$RANDOM % ${#colors[@]}]}"
+}
+
+# --- 2. THE HUD MODULES ---
+
+# Git Status with icon
+parse_git_status() {
+    local status
+    status=$(git status --porcelain -b 2> /dev/null) || return
+    local branch=$(echo "$status" | grep '##' | awk '{print $2}' | sed 's/\.\.\..*//')
+    local dirty=""
+    [[ $(echo "$status" | wc -l) -gt 1 ]] && dirty="*"
+    echo " \[\033[38;5;214m\] $branch$dirty"
+}
+
+# CPU Load (Speedometer)
+get_load() {
+    read -r load _ < /proc/loadavg
+    local color="\[\033[38;5;$(get_vibrant)m\]"
+    # Red alert if load is high
+    if (( $(echo "$load > 1.5" | awk '{print ($1 > $2)}') )); then
+        color="\[\033[1;31m\]"
+    fi
+    echo "${color}⏲ $load"
+}
+
+# RAM Usage (Memory chip)
+get_mem() {
+    # Extracts % of used RAM
+    local mem=$(free | grep Mem | awk '{print int($3/$2 * 100.0)}')
+    local color="\[\033[38;5;244m\]" # Subtle grey by default
+    (( mem > 70 )) && color="\[\033[38;5;220m\]" # Yellow if > 70%
+    (( mem > 90 )) && color="\[\033[1;31m\]"      # Red if > 90%
+    echo " ${color}📋${mem}%"
+}
+
+# Background Jobs
+get_jobs() {
+    local j=$(jobs -p | wc -l)
+    (( j > 0 )) && echo " \[\033[38;5;220m\]⚙$j"
+}
+
+# --- 3. PROMPT ARCHITECT ---
+build_prompt() {
+    local EXIT="$?"
+    
+    # Define UI elements
+    local C_FRAME="\[\033[38;5;237m\]" # Dimmer grey for brackets (makes info pop)
+    local C_VIB="\[\033[38;5;$(get_vibrant)m\]"
+    local C_PATH="\[\033[1;38;5;$(get_vibrant)m\]"
+    local C_RESET="\[\033[0m\]"
+    local SACRED="\[\033[1;38;5;208m\]"
+    local ERROR="\[\033[1;31m\]"
+    local SUCCESS="\[\033[38;5;118m\]"
+
+    # Execution Timer
+    local ELAPSED=""
+    if [ -n "$START_TIME" ]; then
+        local delta=$((SECONDS - START_TIME))
+        (( delta > 0 )) && ELAPSED=" \[\033[38;5;242m\](${delta}s)"
+        unset START_TIME
+    fi
+
+    # Status icon logic
+    local STAT_ICON="${SUCCESS}✔"
+    [ $EXIT -ne 0 ] && STAT_ICON="${ERROR}✘ $EXIT"
+    
+    local LOCK=""
+    [ ! -w "." ] && LOCK=" ${ERROR}🔒"
+
+    # Build the two-line masterpiece
+    # Top line: HUD with User, Time, CPU, RAM, Path, Git, and Timer
+    local LINE1="\n${C_FRAME}┌──$C_RESET $SACREDॐ$C_RESET ${C_FRAME}─$C_RESET [$C_VIB\u@\h$C_RESET] ${C_FRAME}─$C_RESET $C_VIB⌚ \t$C_RESET $(get_load)$(get_mem)$(get_jobs) ${C_FRAME}─$C_RESET $C_PATH\w$C_RESET\$(parse_git_status)$ELAPSED"
+    
+    # Bottom line: Status, Trident, and Prompt
+    local LINE2="\n${C_FRAME}└─$C_RESET $STAT_ICON$LOCK $SACRED🔱$C_RESET \$ "
+
+    PS1="$LINE1$LINE2"
+}
+
+# --- 4. EXECUTION ENGINE ---
+trap 'START_TIME=$SECONDS' DEBUG
+PROMPT_COMMAND="build_prompt"
+export PROMPT_DIRTRIM=3
+export HISTCONTROL=ignoreboth
