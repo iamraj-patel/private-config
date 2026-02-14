@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# --- 1. NEON ENGINE ---
+get_vibrant() {
+    local colors=(39 45 51 81 118 123 154 190 197 201 208 214 220 226)
+    echo "${colors[$RANDOM % ${#colors[@]}]}"
+}
+
+# --- 2. TELEMETRY MODULES ---
+parse_git_status() {
+    local status
+    status=$(git status --porcelain -b 2> /dev/null) || return
+    local branch=$(echo "$status" | grep '##' | awk '{print $2}' | sed 's/\.\.\..*//')
+    local dirty=""
+    [[ $(echo "$status" | wc -l) -gt 1 ]] && dirty="*"
+    echo " \[\033[38;5;214m\] $branch$dirty"
+}
+
+get_sys_health() {
+    local load_val=$1
+    local mem=$(free | grep Mem | awk '{print int($3/$2 * 100.0)}')
+    
+    local load_c="\[\033[38;5;$(get_vibrant)m\]"
+    (( $(echo "$load_val > 1.5" | awk '{print ($1 > $2)}') )) && load_c="\[\033[1;31m\]"
+    
+    local mem_c="\[\033[38;5;246m\]"
+    (( mem > 75 )) && mem_c="\[\033[38;5;220m\]"
+    echo "${load_c}⏲ $load_val ${mem_c}📋${mem}%"
+}
+
+# --- 3. THE MASTER BUILDER ---
+build_prompt() {
+    local ACTUAL_EXIT=$?
+    read -r current_load _ < /proc/loadavg
+    
+    # UI Colors - FORCED UNIQUENESS
+    local C_FRAME="\[\033[38;5;237m\]" 
+    local C_SEP="\[\033[38;5;239m\]"   
+    local C_USER="\[\033[38;5;$(get_vibrant)m\]"
+    local C_TIME="\[\033[38;5;$(get_vibrant)m\]"
+    local C_PATH="\[\033[1;38;5;$(get_vibrant)m\]"
+    local C_RESET="\[\033[0m\]"
+    local SACRED="\[\033[1;38;5;208m\]"
+    local ERROR="\[\033[1;31m\]"
+    local SUCCESS="\[\033[38;5;118m\]"
+
+    # Execution Timer
+    local ELAPSED=""
+    if [ -n "$START_TIME" ]; then
+        local delta=$((SECONDS - START_TIME))
+        (( delta > 0 )) && ELAPSED=" \[\033[38;5;243m\](${delta}s)"
+        unset START_TIME
+    fi
+
+    # Smart Status Reset
+    local CURRENT_CMD_ID=$(history 1 | awk '{print $1}')
+    local STAT_ICON="${SUCCESS}✔"
+    local B_COLOR="$C_FRAME"
+
+    if [ "$ACTUAL_EXIT" -ne 0 ]; then
+        if [ "$CURRENT_CMD_ID" != "$LAST_CMD_ID" ]; then
+            STAT_ICON="${ERROR}✘ $ACTUAL_EXIT"
+            B_COLOR="$ERROR"
+            LAST_CMD_ID=$CURRENT_CMD_ID
+        else
+            STAT_ICON="${SUCCESS}✔"
+            B_COLOR="$C_FRAME"
+        fi
+    else
+        LAST_CMD_ID=$CURRENT_CMD_ID
+    fi
+    
+    local LOCK=""
+    [ ! -w "." ] && LOCK=" ${ERROR}🔒"
+
+    # --- ASSEMBLY ---
+    # Using the individual color variables (C_USER, C_TIME, C_PATH) 
+    # ensures they stay distinct!
+    local LINE1="\n${C_FRAME}┌──$C_RESET $SACREDॐ$C_RESET ${C_FRAME}──$C_RESET [${C_USER}\u@\h${C_RESET}] ${C_SEP}·$C_RESET ${C_TIME}⌚ \t${C_RESET} ${C_SEP}·$C_RESET $(get_sys_health "$current_load") ${C_SEP}·$C_RESET ${C_PATH}\w${C_RESET}\$(parse_git_status)$ELAPSED"
+    local LINE2="\n${B_COLOR}└─$C_RESET $STAT_ICON$LOCK $SACRED🔱$C_RESET \$ "
+
+    PS1="$LINE1$LINE2"
+}
+
+# --- 4. ENGINE SETUP ---
+export PS0='$(START_TIME=$SECONDS)'
+PROMPT_COMMAND="build_prompt"
+
+export PROMPT_DIRTRIM=3
+export HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend
