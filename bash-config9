@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# --- GLOBAL CONFIG ---
+NEON_COLORS=(39 45 51 81 118 123 154 190 197 201 208 214 220 226)
+
+# --- 1. NEON ENGINE ---
+get_vibrant() {
+    echo "${NEON_COLORS[$RANDOM % ${#NEON_COLORS[@]}]}"
+}
+
+# --- 2. TELEMETRY MODULES ---
+parse_git_status() {
+    local status
+    status=$(git status --porcelain -b 2> /dev/null) || return
+    local header="${status%%$'\n'*}"
+    local branch="${header##\#\# }"
+    branch="${branch%%...*}"
+    local dirty=""
+    [[ "$status" == *"$'\n'"* ]] && dirty="*"
+    echo -e "\033[38;5;214m${branch}${dirty}\033[0m"
+}
+
+get_sys_health() {
+    local load_val=$1
+    local mem_percent=0
+    # Fast /proc read
+    if [[ -r /proc/meminfo ]]; then
+        local total avail
+        read -r _ total _ < <(grep MemTotal /proc/meminfo)
+        read -r _ avail _ < <(grep MemAvailable /proc/meminfo)
+        mem_percent=$(( 100 * (total - avail) / total ))
+    fi
+
+    local load_c="\[\033[38;5;$(get_vibrant)m\]"
+    [[ ${load_val%.*} -ge 1 && ${load_val#*.} -ge 50 ]] && load_c="\[\033[1;31m\]"
+    
+    local mem_c="\[\033[38;5;246m\]"
+    (( mem_percent > 75 )) && mem_c="\[\033[38;5;220m\]"
+
+    echo "${load_c}⏲$load_val ${mem_c}📋${mem_percent}%"
+}
+
+# --- 3. THE MASTER BUILDER ---
+build_prompt() {
+    local ACTUAL_EXIT=$?
+    read -r current_load _ < /proc/loadavg
+     
+    # UI Colors
+    local C_FRAME="\[\033[38;5;237m\]"  
+    local C_SEP="\[\033[38;5;239m\]"    
+    local C_USER="\[\033[38;5;$(get_vibrant)m\]"
+    local C_TIME="\[\033[38;5;$(get_vibrant)m\]"
+    local C_PATH="\[\033[1;38;5;$(get_vibrant)m\]"
+    local C_RESET="\[\033[0m\]"
+    local SACRED="\[\033[1;38;5;208m\]"
+    local ERROR="\[\033[1;31m\]"
+    local SUCCESS="\[\033[38;5;118m\]"
+
+    local ELAPSED=""
+    if [ -n "$START_TIME" ]; then
+        local delta=$((SECONDS - START_TIME))
+        (( delta > 0 )) && ELAPSED=" \[\033[38;5;243m\](${delta}s)"
+        unset START_TIME
+    fi
+
+    # --- RESTORED ORIGINAL LOGIC ---
+    # Using awk here to ensure we get the exact same ID parsing as your original
+    local CURRENT_CMD_ID=$(history 1 | awk '{print $1}')
+    local STAT_ICON="${SUCCESS}✔"
+    local B_COLOR="$C_FRAME"
+
+    if [ "$ACTUAL_EXIT" -ne 0 ]; then
+        if [ "$CURRENT_CMD_ID" != "$LAST_CMD_ID" ]; then
+            STAT_ICON="${ERROR}✘ $ACTUAL_EXIT"
+            B_COLOR="$ERROR"
+            LAST_CMD_ID=$CURRENT_CMD_ID
+        else
+            STAT_ICON="${SUCCESS}✔"
+            B_COLOR="$C_FRAME"
+        fi
+    else
+        LAST_CMD_ID=$CURRENT_CMD_ID
+    fi
+     
+    local LOCK=""
+    [ ! -w "." ] && LOCK=" ${ERROR}🔒"
+
+    local GIT_INFO=$(parse_git_status)
+
+    # --- ASSEMBLY (AS ORIGINAL) ---
+    local LINE1="\n${C_FRAME}┌─$C_RESET$SACREDॐ$C_RESET${C_FRAME}─$C_RESET[${C_USER}\u@\h${C_RESET}]${C_SEP}·$C_RESET${C_TIME}⌚\t${C_RESET}${C_SEP}·$C_RESET$(get_sys_health "$current_load")${C_SEP}·$C_RESET${C_PATH}\w${C_RESET} ${GIT_INFO}${ELAPSED}"
+    local LINE2="\n${B_COLOR}└─$C_RESET$STAT_ICON$LOCK $SACRED🔱$C_RESET \$ "
+
+    PS1="$LINE1$LINE2"
+}
+
+# --- 4. ENGINE BOOT ---
+export PS0='$(START_TIME=$SECONDS)' # Restored original timing method
+PROMPT_COMMAND="build_prompt"
+export PROMPT_DIRTRIM=3
+export HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend
