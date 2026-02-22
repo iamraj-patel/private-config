@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # --- 1. PRE-EXECUTION HOOK ---
-# Captures command start time for the execution timer
 trap '[[ -z "$_CMD_START" ]] && _CMD_START=$SECONDS' DEBUG
 
 # --- 2. THE MASTER BUILDER ---
@@ -9,7 +8,6 @@ build_prompt() {
     local EXIT="$?"
     
     # --- Sticky-Error Logic ---
-    # Only updates exit status if a new command was actually run
     local current_hist=$(history 1 2>/dev/null | awk '{print $1}')
     if [[ "$current_hist" == "$_LAST_HIST" || -z "$current_hist" ]]; then
         _VISUAL_EXIT=0
@@ -18,20 +16,20 @@ build_prompt() {
     fi
     _LAST_HIST=$current_hist
 
-    # --- Static & Soft Colors ---
+    # --- Colors & The Neon Engine ---
     local C_RESET="\[\033[0m\]"
-    local C_FRAME="\[\033[38;5;239m\]"      # Dark grey frame
-    local C_TIME="\[\033[38;5;109m\]"       # Soft Muted Blue (Static)
-    local C_MEM="\[\033[38;5;144m\]"        # Soft Sand/Tan (Static)
-    local SACRED="\[\033[1;38;5;208m\]"     # Orange accent
+    local C_FRAME="\[\033[38;5;237m\]"      # Dark slate frame
+    local SACRED="\[\033[1;38;5;208m\]"     # The Sacred Orange for ॐ
+    local C_TIME="\[\033[38;5;147m\]"       # Light static Lavender for Time
+    local C_MEM="\[\033[38;5;151m\]"        # Light static Sage for Memory
     local ERROR="\[\033[1;31m\]"
     local SUCCESS="\[\033[38;5;118m\]"
     
-    # Dynamic Neon Colors (for User/Path only)
+    # Dynamic Neon Colors (Randomized for User & Path)
     local colors=(39 45 51 81 118 123 154 190 197 201 208 214 220 226)
     local rand_u="${colors[RANDOM % 14]}"
     local rand_p="${colors[RANDOM % 14]}"
-    local rand_t="${colors[RANDOM % 14]}" # Dynamic Load color
+    local rand_t="${colors[RANDOM % 14]}"
 
     # --- Context & Permissions ---
     [[ "$HOSTNAME" == *prod* ]] && C_FRAME="\[\033[1;31m\]"
@@ -42,11 +40,10 @@ build_prompt() {
         ROLE_ICON="⚡"
     fi
 
-    # --- Telemetry (Load + RAM) ---
+    # --- Telemetry (Load + RAM + Time) ---
     local load_val="0.00"
     [[ -f /proc/loadavg ]] && read -r load_val _ < /proc/loadavg
     local load_c="\[\033[38;5;${rand_t}m\]"
-    # Load turns Red only if it exceeds 1.0
     [[ "${load_val%%.*}" -ge 1 ]] && load_c="\[\033[1;31m\]"
 
     local mem_pct=0
@@ -59,8 +56,11 @@ build_prompt() {
         done < /proc/meminfo
         (( t > 0 )) && mem_pct=$(( 100 - (a * 100 / t) ))
     fi
+    
+    # Static Light Time + Timezone
+    local srv_time=$(date +%H:%M:%S\ %Z)
 
-    # --- Git & Lock Status ---
+    # --- Git & Permissions Check ---
     local GIT_INFO=""
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         local branch=$(git branch --show-current 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
@@ -73,7 +73,7 @@ build_prompt() {
     local ELAPSED=""
     if [[ -n "$_CMD_START" ]]; then
         local delta=$(( SECONDS - _CMD_START ))
-        (( delta >= 2 )) && ELAPSED=" \[\033[38;5;243m\] ${delta}s"
+        (( delta >= 2 )) && ELAPSED=" \[\033[38;5;243m\] (${delta}s)"
         unset _CMD_START
     fi
 
@@ -85,14 +85,15 @@ build_prompt() {
         B_COLOR="$ERROR"
     fi
 
-    # --- THE COHESIVE ASSEMBLY ---
-    # Structure: [Time+TZ] [User@Host] [Load | RAM%] [Path + Git]
-    local P_TIME="${C_FRAME}[${C_TIME}$(date +%H:%M:%S\ %Z)${C_FRAME}]"
-    local P_ID="${C_FRAME}[${C_USER}\u@\h${C_FRAME}]"
-    local P_SYS="${C_FRAME}[${load_c}⏲ ${load_val} ${C_FRAME}| ${C_MEM}📋 ${mem_pct}%${C_FRAME}]"
-    local P_PATH=" \[\033[1;38;5;${rand_p}m\]\w${C_RESET}${LOCK_ICON}${GIT_INFO}${ELAPSED}"
+    # --- ASSEMBLY (Cohesive Layout) ---
+    # Line 1: [ॐ] [Time+TZ] [User@Host] [Load | RAM] [Path]
+    local P_OM="${C_FRAME}┌─${SACRED}ॐ${C_FRAME}─"
+    local P_TIME="[${C_TIME}${srv_time}${C_FRAME}]─"
+    local P_ID="[${C_USER}\u@\h${C_FRAME}]─"
+    local P_SYS="[${load_c}⏲ ${load_val} ${C_FRAME}| ${C_MEM}📋 ${mem_pct}%${C_FRAME}]"
+    local P_PATH="─\[\033[1;38;5;${rand_p}m\]\w${C_RESET}${LOCK_ICON}${GIT_INFO}${ELAPSED}"
 
-    local L1="${C_FRAME}┌─ ${P_TIME} ${P_ID} ${P_SYS}${P_PATH}"
+    local L1="${P_OM}${P_TIME}${P_ID}${P_SYS}${P_PATH}"
     local L2="${B_COLOR}└─${C_RESET}${STAT_ICON} ${SACRED}${ROLE_ICON}${C_RESET} \$ "
 
     PS1="\n${L1}\n${L2}"
