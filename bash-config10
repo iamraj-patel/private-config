@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # --- 1. PRE-EXECUTION HOOK ---
+# Captures command start time for the execution timer
 trap '[[ -z "$_CMD_START" ]] && _CMD_START=$SECONDS' DEBUG
 
 # --- 2. THE MASTER BUILDER ---
@@ -8,8 +9,8 @@ build_prompt() {
     local EXIT="$?"
     
     # --- Sticky-Error Logic ---
-    local current_hist
-    current_hist=$(history 1 2>/dev/null | awk '{print $1}')
+    # Only updates exit status if a new command was actually run
+    local current_hist=$(history 1 2>/dev/null | awk '{print $1}')
     if [[ "$current_hist" == "$_LAST_HIST" || -z "$current_hist" ]]; then
         _VISUAL_EXIT=0
     else
@@ -17,22 +18,23 @@ build_prompt() {
     fi
     _LAST_HIST=$current_hist
 
-    # --- Colors & The Neon Engine ---
-    local colors=(39 45 51 81 118 123 154 190 197 201 208 214 220 226)
+    # --- Static & Soft Colors ---
     local C_RESET="\[\033[0m\]"
-    local SACRED="\[\033[1;38;5;208m\]"
+    local C_FRAME="\[\033[38;5;239m\]"      # Dark grey frame
+    local C_TIME="\[\033[38;5;109m\]"       # Soft Muted Blue (Static)
+    local C_MEM="\[\033[38;5;144m\]"        # Soft Sand/Tan (Static)
+    local SACRED="\[\033[1;38;5;208m\]"     # Orange accent
     local ERROR="\[\033[1;31m\]"
     local SUCCESS="\[\033[38;5;118m\]"
-    local C_FRAME="\[\033[38;5;237m\]"
-    local C_TIME="\[\033[38;5;242m\]" # Dim grey for time
     
+    # Dynamic Neon Colors (for User/Path only)
+    local colors=(39 45 51 81 118 123 154 190 197 201 208 214 220 226)
     local rand_u="${colors[RANDOM % 14]}"
     local rand_p="${colors[RANDOM % 14]}"
-    local rand_t="${colors[RANDOM % 14]}"
+    local rand_t="${colors[RANDOM % 14]}" # Dynamic Load color
 
     # --- Context & Permissions ---
     [[ "$HOSTNAME" == *prod* ]] && C_FRAME="\[\033[1;31m\]"
-    
     local C_USER="\[\033[38;5;${rand_u}m\]"
     local ROLE_ICON="🔱"
     if (( EUID == 0 )); then
@@ -40,10 +42,11 @@ build_prompt() {
         ROLE_ICON="⚡"
     fi
 
-    # --- Telemetry (Load + RAM + Time) ---
+    # --- Telemetry (Load + RAM) ---
     local load_val="0.00"
     [[ -f /proc/loadavg ]] && read -r load_val _ < /proc/loadavg
     local load_c="\[\033[38;5;${rand_t}m\]"
+    # Load turns Red only if it exceeds 1.0
     [[ "${load_val%%.*}" -ge 1 ]] && load_c="\[\033[1;31m\]"
 
     local mem_pct=0
@@ -56,28 +59,21 @@ build_prompt() {
         done < /proc/meminfo
         (( t > 0 )) && mem_pct=$(( 100 - (a * 100 / t) ))
     fi
-    
-    # Get server time + configured timezone
-    local srv_time=$(date +%H:%M:%S\ %Z)
 
-    # --- Git Check ---
+    # --- Git & Lock Status ---
     local GIT_INFO=""
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        local branch
-        branch=$(git branch --show-current 2>/dev/null)
-        [[ -z "$branch" ]] && branch=$(git rev-parse --short HEAD 2>/dev/null)
+        local branch=$(git branch --show-current 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
         GIT_INFO=" \[\033[38;5;214m\]${branch}"
     fi
-
-    # --- Permissions Check ---
     local LOCK_ICON=""
-    [[ ! -w . ]] && LOCK_ICON=" \[\033[38;5;196m\]🔒"
+    [[ ! -w . ]] && LOCK_ICON=" \[\033[38;5;196m\] 🔒"
 
     # --- Execution Timer ---
     local ELAPSED=""
     if [[ -n "$_CMD_START" ]]; then
         local delta=$(( SECONDS - _CMD_START ))
-        (( delta >= 2 )) && ELAPSED=" \[\033[38;5;243m\](${delta}s)"
+        (( delta >= 2 )) && ELAPSED=" \[\033[38;5;243m\] ${delta}s"
         unset _CMD_START
     fi
 
@@ -89,16 +85,17 @@ build_prompt() {
         B_COLOR="$ERROR"
     fi
 
-    # --- ASSEMBLY ---
-    # Line 1: [User@Host]─[Time]─[Load]─[RAM]─[Path]
-    local L1_HEAD="${C_FRAME}┌─${SACRED}ॐ${C_FRAME}─[${C_USER}\u@\h${C_FRAME}]"
-    local L1_TIME="─[${C_TIME}${srv_time}${C_FRAME}]"
-    local L1_HEALTH="─${load_c}⏲${load_val} \[\033[38;5;246m\]📋${mem_pct}%${C_FRAME}"
-    local L1_PATH="─\[\033[1;38;5;${rand_p}m\]\w${C_RESET}${LOCK_ICON}${GIT_INFO}${ELAPSED}"
-    
+    # --- THE COHESIVE ASSEMBLY ---
+    # Structure: [Time+TZ] [User@Host] [Load | RAM%] [Path + Git]
+    local P_TIME="${C_FRAME}[${C_TIME}$(date +%H:%M:%S\ %Z)${C_FRAME}]"
+    local P_ID="${C_FRAME}[${C_USER}\u@\h${C_FRAME}]"
+    local P_SYS="${C_FRAME}[${load_c}⏲ ${load_val} ${C_FRAME}| ${C_MEM}📋 ${mem_pct}%${C_FRAME}]"
+    local P_PATH=" \[\033[1;38;5;${rand_p}m\]\w${C_RESET}${LOCK_ICON}${GIT_INFO}${ELAPSED}"
+
+    local L1="${C_FRAME}┌─ ${P_TIME} ${P_ID} ${P_SYS}${P_PATH}"
     local L2="${B_COLOR}└─${C_RESET}${STAT_ICON} ${SACRED}${ROLE_ICON}${C_RESET} \$ "
 
-    PS1="\n${L1_HEAD}${L1_TIME}${L1_HEALTH}${L1_PATH}\n${L2}"
+    PS1="\n${L1}\n${L2}"
 }
 
 PROMPT_COMMAND="build_prompt"
