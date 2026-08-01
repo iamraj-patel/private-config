@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[[ $- != *i* ]] && return
 
 # Cross-Distro Production MOTD
 # Supports: Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, Oracle Linux
